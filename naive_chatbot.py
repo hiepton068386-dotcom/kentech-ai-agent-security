@@ -1,10 +1,11 @@
 import ollama
 
+client = ollama.Client(host="http://192.168.100.220:11434")
 MODEL = "qwen2.5:7b"
 
 def chatbot(user_message: str) -> str:
     """Chatbot đơn giản: 1 round-trip, không tool, không memory."""
-    response = ollama.chat(
+    response = client.chat(
         model=MODEL,
         messages=[
             {
