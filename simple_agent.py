@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 
 import ollama
 
-client = ollama.Client(host="http://192.168.100.220:11434")
-MODEL = "qwen2.5:7b"
+client = ollama.Client(host="http://192.168.100.237:11434")
+MODEL = "qwen2.5:14b"
 
 def get_weekly_revenue(days: int = 7) -> dict:
     """Lấy doanh thu N ngày gần nhất từ DB."""

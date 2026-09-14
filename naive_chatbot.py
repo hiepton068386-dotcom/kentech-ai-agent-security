@@ -1,7 +1,7 @@
 import ollama
 
-client = ollama.Client(host="http://192.168.100.220:11434")
-MODEL = "qwen2.5:7b"
+client = ollama.Client(host="http://192.168.100.237:11434")
+MODEL = "qwen2.5:14b"
 
 def chatbot(user_message: str) -> str:
     """Chatbot đơn giản: 1 round-trip, không tool, không memory."""
