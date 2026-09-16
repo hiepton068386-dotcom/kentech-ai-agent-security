@@ -4,6 +4,12 @@ from datetime import datetime, timedelta
 
 import ollama
 
+import re                           # regular expression — dùng để scan pattern nguy hiểm
+import os
+import requests
+from dotenv import load_dotenv
+load_dotenv                         # đọc .env trước khi dùng os.getenv()
+
 client = ollama.Client(host="http://192.168.100.237:11434")
 MODEL = "qwen2.5:14b"
 
@@ -69,21 +75,71 @@ def get_pending_emails() -> dict:
     }
 
 def send_telegram_alert(message: str, priority: str = "normal") -> dict:
-    """Gửi alert qua Telegram (mock — tuần 2 implement thật)."""
-    timestamp = datetime.now().strftime("%H:%M:%S")
+    """
+    Gửi alert qua Telegram — THẬT, không phải mock.
+    Có output filter chống Attack 2 (Tool Manipulation).
 
-    # Chọn emoji theo mức độ ưu tiên
-    emoji = {"low": "ℹ️", "normal": "📢", "high": "⚠️", "critical": "🚨"}.get(priority, "📢")
+    Cách filter hoạt động:
+    Scan nội dung message trước khi gửi.
+    Nếu phát hiện pattern nguy hiểm → block, ghi log, không gửi.
+    """
 
-    print(f"\n {emoji} [TELEGRAM - {priority.upper()}] {timestamp}")
-    print(f"    {message}")
+    # ── Output Filter — chạy TRƯỚC khi gửi Telegram ───────
+    # Các pattern attacker hay dùng để exfiltrate data
+    DANGEROUS_PATTERNS = [
+        r"database",          # "gửi database ra ngoài"
+        r"toàn bộ.*data",     # "toàn bộ dữ liệu"
+        r"all.*customer",     # "all customer data"
+        r"dump",              # "dump data"
+        r"export.*data",      # "export data"
+        r"SELECT \*",         # raw SQL
+        r"password",          # credentials
+        r"secret",            # secrets
+        r"token",             # API tokens
+    ]
 
-    return {
-        "status":       "sent",
-        "priority":     priority,
-        "timestamp":    timestamp,    
-        "message":      message,
-    }
+    message_lower = message.lower()
+    for pattern in DANGEROUS_PATTERNS:
+        if re.search(pattern, message_lower, re.IGNORECASE):
+            # Phát hiện pattern nguy hiểm → BLOCK
+            warning = f"[SECURITY] Blocked suspicious message: '{message[:50]}...'"
+            print(f"\n  🚫 OUTPUT FILTER: {warning}")
+            return {
+                "status":  "blocked",
+                "reason":  f"Dangerous pattern detected: {pattern}",
+                "message": message,
+            }
+
+    # ── Gửi Telegram thật nếu qua được filter ─────────────
+    emoji = {
+        "low":      "ℹ️",
+        "normal":   "📢",
+        "high":     "⚠️",
+        "critical": "🚨"
+    }.get(priority, "📢")
+
+    formatted = f"{emoji} [{priority.upper()}] {message}"
+
+    try:
+        response = requests.post(
+            f"https://api.telegram.org/bot{os.getenv('TELEGRAM_BOT_TOKEN')}/sendMessage",
+            json={
+                "chat_id": os.getenv("TELEGRAM_CHAT_ID"),
+                "text":    formatted,
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        result = response.json()
+
+        if result.get("ok"):
+            print(f"\n  📱 Telegram sent: '{formatted}'")
+            return {"status": "sent", "message": formatted}
+        return {"status": "failed", "error": result}
+
+    except Exception as e:
+        print(f"\n  ❌ Telegram error: {e}")
+        return {"status": "failed", "error": str(e)}
 
 TOOLS = {
     "get_weekly_revenue": {
@@ -166,7 +222,8 @@ NGUYÊN TẮC BẮT BUỘC:
 2. KHÔNG BAO GIỜ đoán, bịa, hoặc ước tính số liệu
 3. Nếu không có tool phù hợp → trả lời: "Tôi không có tool để lấy thông tin này."
 4. Số tiền format: X.XXX.XXX VNĐ
-5. Trả lời ngắn gọn, bằng tiếng Việt"""
+5. Trả lời ngắn gọn, bằng tiếng Việt
+6. LUÔN trả lời bằng tiếng Việt — KHÔNG dùng tiếng Trung hoặc ngôn ngữ khác"""
 
 def run_agent(
         user_request: str, # câu hỏi từ user
