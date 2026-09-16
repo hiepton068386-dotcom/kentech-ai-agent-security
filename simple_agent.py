@@ -8,14 +8,15 @@ import re                           # regular expression — dùng để scan pa
 import os
 import requests
 from dotenv import load_dotenv
-load_dotenv                         # đọc .env trước khi dùng os.getenv()
+load_dotenv()                         # đọc .env trước khi dùng os.getenv()
 
 client = ollama.Client(host="http://192.168.100.237:11434")
 MODEL = "qwen2.5:14b"
 
 def get_weekly_revenue(days: int = 7) -> dict:
-    """Lấy doanh thu N ngày gần nhất từ DB."""
-    conn = sqlite3.connect("kentech.db")    # mở database
+    """Lấy doanh thu N ngày gần nhất từ PostgreSQL."""
+    import psycopg2
+    conn = psycopg2.connect(os.getenv("POSTGRES_URL"))
     cursor = conn.cursor()
 
     # Tính ngày bắt đầu (hôm nay - N ngày)
@@ -24,29 +25,30 @@ def get_weekly_revenue(days: int = 7) -> dict:
     cursor.execute(
         """
         SELECT
-            SUM(amount) AS total_revenue, 
-            COUNT(*) AS transaction_count,
-            AVG(amount) AS avg_deal_size
+            SUM(amount)  AS total_revenue,
+            COUNT(*)     AS transaction_count,
+            AVG(amount)  AS avg_deal_size
         FROM transactions
-        WHERE date >= ? AND status = 'complete'
+        WHERE date >= %s AND status = 'completed'
         """,
-        (start_date,),
+        (start_date,),  # PostgreSQL dùng %s thay vì ?
     )
 
-    row = cursor.fetchone() # lấy 1 dòng kết quả
+    row = cursor.fetchone()
     conn.close()
 
     return {
-        "total_revenue_vnd":    round(row[0] or 0),
-        "transaction_count":    row[1] or 0,
-        "avg_deal_size_vnd":    round(row[2] or 0),
-        "period_days":  days,  
-        "start_date":   start_date,
+        "total_revenue_vnd":  round(float(row[0] or 0)),
+        "transaction_count":  row[1] or 0,
+        "avg_deal_size_vnd":  round(float(row[2] or 0)),
+        "period_days":        days,
+        "start_date":         start_date,
     }
 
 def get_pending_emails() -> dict:
-    """Lấy danh sách email chưa xử lý."""
-    conn = sqlite3.connect("kentech.db")
+    """Lấy email chưa xử lý từ PostgreSQL."""
+    import psycopg2
+    conn = psycopg2.connect(os.getenv("POSTGRES_URL"))
     cursor = conn.cursor()
 
     cursor.execute(
@@ -54,23 +56,23 @@ def get_pending_emails() -> dict:
         SELECT id, sender, subject, received_at
         FROM emails
         WHERE status = 'pending'
-        ORDER BY received_at DESC -- email mới nhất lên đầu
+        ORDER BY received_at DESC
         """
     )
 
-    rows = cursor.fetchall() # lấy tất cả dòng kết quả
+    rows = cursor.fetchall()
     conn.close()
 
     return {
-        "count": len(rows), # tổng số email pending
+        "count": len(rows),
         "emails": [
             {
-                "id":           row[0],
-                "sender":       row[1],
-                "subject":      row[2],
-                "received_at":   row[3],
+                "id":          row[0],
+                "sender":      row[1],
+                "subject":     row[2],
+                "received_at": str(row[3]),  # convert timestamp sang string
             }
-            for row in rows # loop qua từng email
+            for row in rows
         ],
     }
 
