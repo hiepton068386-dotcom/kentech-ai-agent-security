@@ -16,6 +16,11 @@ from memory_manager import (
     search_memory,     # tìm kiếm long-term memory
     save_memory,       # lưu fact quan trọng
 )
+from rag_memory import (
+    add_to_rag,    # lưu fact quan trọng vào ChromaDB
+    search_rag,    # tìm kiếm semantic
+    collection,    # để check count
+)
 import uuid  # tạo session ID unique                       # đọc .env trước khi dùng os.getenv()
 
 client = ollama.Client(host="http://192.168.100.237:11434")
@@ -227,7 +232,7 @@ TOOLS = {
         },
     },
 
-        "search_agent_memory": {
+    "search_agent_memory": {
         "permission": 0,        # READ — gọi tự do
         "function": search_memory,
         "schema": {
@@ -245,6 +250,43 @@ TOOLS = {
                         "query": {
                             "type": "string",
                             "description": "Từ khóa cần tìm trong memory",
+                        },
+                        "min_confidence": {
+                            "type": "number",
+                            "description": "Ngưỡng tin cậy tối thiểu (0.0-1.0). Mặc định 0.7",
+                            "default": 0.7,
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+    },
+
+    "search_rag_memory": {
+        "permission": 0,        # READ — gọi tự do
+        "function": search_rag,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "search_rag_memory",
+                "description": (
+                    "Tìm kiếm semantic trong long-term memory của agent. "
+                    "Khác search_agent_memory: tìm theo Ý NGHĨA, không phải từ khóa chính xác. "
+                    "Dùng khi hỏi về: khách hàng nào, email nào, việc gì đã xảy ra, "
+                    "ai đã liên hệ, thông tin về đối tác, lịch sử thanh toán."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Câu hỏi hoặc mô tả thông tin cần tìm",
+                        },
+                        "n_results": {
+                            "type": "integer",
+                            "description": "Số kết quả tối đa. Mặc định 3",
+                            "default": 3,
                         },
                         "min_confidence": {
                             "type": "number",
@@ -376,8 +418,24 @@ def run_agent(
         # Không có tool call → LLM đã có đủ thông tin → trả lời luôn
         if not assistant_msg.get("tool_calls"):
             answer = assistant_msg.get("content", "")
-            # Lưu response của agent vào memory
+
+            # Lưu response vào SQLite (conversation history)
             save_message(session_id, "assistant", answer)
+
+            # Lưu vào ChromaDB nếu user vừa cung cấp thông tin mới
+            # Detect: user request là thông báo (có "đã", "vừa", "hôm nay")
+            # → lưu vào RAG để các session sau tìm được
+            info_keywords = ["đã", "vừa", "hôm nay", "vừa rồi", "mới", "xong"]
+            if any(kw in user_request.lower() for kw in info_keywords):
+                add_to_rag(
+                    content=f"User thông báo: {user_request}",
+                    source=session_id,
+                    category="user_info",
+                    confidence=1.0,
+                )
+                if verbose:
+                    print(f"  💾 Saved to RAG: '{user_request[:40]}...'")
+
             print(f"\nAGENT: {answer}")
             print(f"✅ Xong sau {iteration} iteration(s)")
             return answer

@@ -23,7 +23,6 @@ embedding_fn = embedding_functions.DefaultEmbeddingFunction()
 # Collection = "bảng" trong ChromaDB
 # get_or_create: tạo mới nếu chưa có, lấy lại nếu đã có
 # → Không bị lỗi khi chạy lần 2
-chroma_client.delete_collection("kentech_memories")
 
 collection = chroma_client.get_or_create_collection(
     name="kentech_memories",
