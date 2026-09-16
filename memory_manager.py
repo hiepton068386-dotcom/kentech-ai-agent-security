@@ -118,7 +118,7 @@ def load_recent_history(session_id: str, limit: int = 10) -> list:
         """
         SELECT role, content
         FROM conversations
-        WHERE session_id = ?
+        WHERE session_id = ? AND role IN ('user', 'assistant')  -- ← bỏ 'tool' messages
         ORDER BY timestamp DESC  -- mới nhất trước
         LIMIT ?
         """,
