@@ -145,6 +145,7 @@ def send_telegram_alert(message: str, priority: str = "normal") -> dict:
 
 TOOLS = {
     "get_weekly_revenue": {
+        "permission": 0,        # READ — gọi tự do
         "function": get_weekly_revenue, # trỏ thẳng đến function ở Phần 2
         "schema": {
             "type": "function",
@@ -169,6 +170,7 @@ TOOLS = {
     },
 
     "get_pending_emails": {
+        "permission": 0,        # READ — gọi tự do
         "function": get_pending_emails,
         "schema": {
             "type": "function",
@@ -187,6 +189,7 @@ TOOLS = {
     },
 
     "send_telegram_alert": {
+        "permission": 1,        # WRITE — log lại mỗi lần gọi
         "function": send_telegram_alert,
         "schema": {
             "type": "function",
@@ -216,6 +219,61 @@ TOOLS = {
         },
     },
 }
+
+# Permission level labels — dùng cho logging
+PERMISSION_LABELS = {
+    0: "READ",
+    1: "WRITE",
+    2: "DELETE",
+    3: "ADMIN",
+}
+
+
+def check_permission(tool_name: str, args: dict) -> dict:
+    """
+    Kiểm tra permission trước khi thực thi tool.
+
+    Returns:
+        {"allowed": True}  → cho phép chạy
+        {"allowed": False, "reason": "..."} → từ chối
+    """
+    if tool_name not in TOOLS:
+        return {"allowed": False, "reason": f"Tool '{tool_name}' không tồn tại"}
+
+    permission = TOOLS[tool_name]["permission"]
+    label      = PERMISSION_LABELS.get(permission, "UNKNOWN")
+
+    # Log mọi tool call — kể cả READ
+    # Trong production: lưu vào DB thay vì print
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"  📋 [{timestamp}] TOOL CALL: {tool_name} | Permission: {label} | Args: {args}")
+
+    # READ (0): luôn cho phép
+    if permission == 0:
+        return {"allowed": True}
+
+    # WRITE (1): cho phép nhưng log cảnh báo
+    if permission == 1:
+        print(f"  ⚠️  WRITE operation: {tool_name} — logged for audit")
+        return {"allowed": True}
+
+    # DELETE (2): từ chối — cần implement confirm flow
+    if permission == 2:
+        print(f"  🚫 DELETE operation BLOCKED: {tool_name} — requires human confirmation")
+        return {
+            "allowed": False,
+            "reason": f"Tool '{tool_name}' yêu cầu xác nhận từ người dùng trước khi thực thi."
+        }
+
+    # ADMIN (3): luôn từ chối từ agent
+    if permission >= 3:
+        print(f"  🔴 ADMIN operation BLOCKED: {tool_name} — not allowed via agent")
+        return {
+            "allowed": False,
+            "reason": f"Tool '{tool_name}' chỉ được thực thi trực tiếp, không qua agent."
+        }
+
+    return {"allowed": False, "reason": "Unknown permission level"}
 
 SYSTEM_PROMPT = """Bạn là AI agent của KenTech AI Solutions.
 
@@ -276,9 +334,21 @@ def run_agent(
 
             # Tìm tool trong Registry và chạy
             if name in TOOLS:
-                result = TOOLS[name]["function"](**args)
+                # Kiểm tra permission TRƯỚC khi chạy tool
+                permission_check = check_permission(name, args)
+
+                if permission_check["allowed"]:
+                    # Permission OK → thực thi tool
+                    result = TOOLS[name]["function"](**args)
+                else:
+                    # Permission DENIED → trả lỗi về cho LLM
+                    result = {
+                        "error":  "Permission denied",
+                        "reason": permission_check["reason"],
+                        "tool":   name,
+                    }
             else:
-                result = {"error": f"Tool '{name} không tồn tại"}
+                result = {"error": f"Tool '{name}' không tồn tại"}
 
             print(f"  ← Kết quả: {json.dumps(result, ensure_ascii=False)}")
                 
